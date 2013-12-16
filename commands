@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e; 
 
+DOCKER_VOLUMES=/var/lib/docker/vfs/dir
+
 # Check if name is specified
 if [[ $1 == postgresql:* ]]; then
     if [[ -z $2 ]]; then
@@ -28,8 +30,8 @@ case "$1" in
         exit 1
     fi
     # Check if an existing DB volume exists
-    if [[ -d "/var/lib/docker/volumes/postgresql-$APP" ]]; then
-        VOLUME="/var/lib/docker/volumes/postgresql-$APP/layer:/opt/postgresql"
+    if [[ -f "$DOKKU_ROOT/.postgresql/volume_$APP" ]]; then
+        VOLUME="`cat $DOKKU_ROOT/.postgresql/volume_$APP`:/opt/postgresql"
         echo
         echo "-----> Reusing postgresql/$APP database"
     else
@@ -52,11 +54,10 @@ case "$1" in
     # Launch container
     ID=$(docker run -v $VOLUME -p 5432 -d $DB_IMAGE /usr/bin/start_pgsql.sh $DB_PASSWORD)
     sleep 4
-    # Rename persistent volume
-    if [[ ! -d "/var/lib/docker/volumes/postgresql-$APP" ]]; then
-        VOLUME_PATH=$(docker inspect $ID | grep "/var/lib/docker/volumes/" | awk '{print $2}' | sed -e"s/\/layer//" | sed -e's/"//g')
-        mv $VOLUME_PATH "/var/lib/docker/volumes/postgresql-$APP"
-        sleep 1
+    # Mark persistent volume
+    if [[ ! -f "$DOKKU_ROOT/.postgresql/volume_$APP" ]]; then
+        VOLUME_PATH=$(docker inspect $ID | grep "$DOCKER_VOLUMES/" | awk '{print $2}' | sed -e"s/\/layer//" | sed -e's/"//g')
+        echo $VOLUME_PATH > "$DOKKU_ROOT/.postgresql/volume_$APP"
     fi
     # Link to a potential existing app
     dokku postgresql:link $APP $APP
@@ -79,8 +80,8 @@ case "$1" in
         docker rmi $IMAGE
     fi
     # Remove persistent volume
-    if [[ -d "/var/lib/docker/volumes/postgresql-$APP" ]]; then
-        rm -rf "/var/lib/docker/volumes/postgresql-$APP"
+    if [[ -f "$DOKKU_ROOT/.postgresql/volume_$APP" ]]; then
+        rm -rf "`cat "$DOKKU_ROOT/.postgresql/volume_$APP"`"
     fi
     echo
     echo "-----> PostgreSQL container deleted: $DB_IMAGE"
